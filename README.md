@@ -1,2 +1,2 @@
 # stm32_battery_tester
-Projects for stm32 platform Li-Ion battery tester
+Project for stm32 development platform Blue Pill - Li-Ion battery tester
