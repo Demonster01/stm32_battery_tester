@@ -29,7 +29,7 @@ const byte year = 19;
 // analog
 const int analogInPin = PB1;
 const float R = 3.0; // resistance of ballast resistor + open mosfet, Ohm
-const float coefficientADC = 0.00681; // constant to convert ADC reading to voltage
+const float coefficientADC = 0.0069; // constant to convert ADC reading to voltage
 const float alpha = 0.0392; // alpha = 2 / (num_reads + 1)
 const float beta = 1 - alpha; // beta = 1 - alpha
 const float minVoltage = 3; // minimal voltage on deplited battery
@@ -56,8 +56,7 @@ const int ledOutPin = PC13;
 int test = 0;
 
 // test time in millis
-unsigned long prevMillis = 0;
-//unsigned long currentMillis = 0;
+unsigned long prevMillis;
 
 // debug info
 int debug = HIGH;
@@ -210,19 +209,20 @@ void loop() {
     case 1:
       // Start test      
       digitalWrite(mosfetOutPin, HIGH);
-      test = 2;
-      prevMillis = millis();
+      test = 2;      
       if (V < minVoltage) {
         test = 3;
         digitalWrite(mosfetOutPin, LOW);
         beepStop();
       }
+      prevMillis = millis();
       break;
     case 2:
       // Testing
       I = V / R;
       Wh += V * I * (millis() - prevMillis) / 3600000;
-      capacity += I * (millis() - prevMillis) / 3600000000;
+      capacity += I * (millis() - prevMillis) / 3600;
+      prevMillis = millis();
       u8g2.setCursor(0,24);
       u8g2.print("Testing battery...");
       showVoltage();
