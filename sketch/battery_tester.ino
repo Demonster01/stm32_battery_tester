@@ -9,7 +9,7 @@
 #include <Wire.h>
 #endif
 
-#define NUM_READS 10 // number of readings in sample
+#define NUM_READS 50 // number of readings in sample
 
 U8G2_SSD1306_128X32_UNIVISION_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ PA0, /* dc=*/ PA1, /* reset=*/ PA2);
 
@@ -26,31 +26,41 @@ const byte day = 1;
 const byte month = 1;
 const byte year = 19;
 
-// Analog
+// analog
 const int analogInPin = PB1;
-const float coefficientADC = 0.007; // constant to convert ADC reading to voltage
-const int minVoltage = 3 / coefficientADC; // ADC readout = minimal voltage on battery divided on coefficientADC
-int voltageADC = 0;
+const float R = 3.0; // resistance of ballast resistor + open mosfet, Ohm
+const float coefficientADC = 0.00681; // constant to convert ADC reading to voltage
+const float alpha = 0.0392; // alpha = 2 / (num_reads + 1)
+const float beta = 1 - alpha; // beta = 1 - alpha
+const float minVoltage = 3; // minimal voltage on deplited battery
+float voltageADC = 0;
+float V = 0;
+float I = 0;
+float Wh = 0; // capacity of battery in Watt*hours
+float capacity = 0; // capacity of battery in mA*hours
 
 // MOSFET driver
 const int mosfetOutPin = PB0;
 
-// Button
+// button
 const int buttonInPin = PB10;
 int buttonState = HIGH;
 
-// Buzzer
+// buzzer
 const int buzzerOutPin = PB11;
 
 // LED
 const int ledOutPin = PC13;
 
-// test condition
+// state of test
 int test = 0;
-unsigned long prevMillis = 0;
-unsigned long currentMillis = 0;
 
-//unsigned long prevMillis;
+// test time in millis
+unsigned long prevMillis = 0;
+//unsigned long currentMillis = 0;
+
+// debug info
+int debug = HIGH;
 
 void setup() {
   // put your setup code here, to run once:
@@ -65,14 +75,14 @@ void setup() {
   digitalWrite(mosfetOutPin, LOW);
 
   u8g2.begin();
-  u8g2.setFont(u8g2_font_helvB08_tr);
+  u8g2.setFont(u8g2_font_haxrcorp4089_tr);
 
   rtc.setClockSource(STM32RTC::LSE_CLOCK);
   rtc.begin();
   rtc.setTime(hours, minutes, seconds);
   rtc.setDate(weekDay, day, month, year);
 
-  // Init done
+  // play on buzzer and LED - init done
   digitalWrite(buzzerOutPin, 0);
   digitalWrite(ledOutPin, 0);
   delay(50);
@@ -87,12 +97,12 @@ void setup() {
 
 }
 
-int readVoltage () {
-  int sumOfReadedValues = 0;
-  for (int i = 0; i < NUM_READS; i++) {
-    sumOfReadedValues += analogRead(analogInPin);
+float readVoltage () {
+// Exponentially weighted moving average
+  for  (int i = 0; i < NUM_READS; i++) {
+    voltageADC = alpha * analogRead(analogInPin) + beta * voltageADC;
   }
-  return sumOfReadedValues / NUM_READS; // arithmetic mean
+  return coefficientADC * int(voltageADC);
 }
 
 int readButtonDebounce () {
@@ -101,15 +111,15 @@ int readButtonDebounce () {
   // if the switch changed, due to noise or pressing:
   if (reading == LOW) {
     // delay
-    delay(50);
+    delay(100);
     reading = digitalRead(buttonInPin);    
   }
   return reading;  
 }
 
 void showTimeSinceStart () {
-  // show time since start
-  u8g2.setCursor(85,31);
+  // show time since start from RTC
+  u8g2.setCursor(87,32);
   if (rtc.getHours() < 10) {
     u8g2.print("0"); // print a 0 before if the number is < than 10
   }
@@ -126,32 +136,75 @@ void showTimeSinceStart () {
   u8g2.print(rtc.getSeconds());
 }
 
-void showVoltage (int voltage) {
-  u8g2.setCursor(0,18);
-  u8g2.print("Voltage: ");
-  u8g2.print(voltage * coefficientADC, 3);
+void showVoltage () {
+  u8g2.setCursor(0,8);
+  u8g2.print("V: ");
+  u8g2.print(V);
+}
+
+void showCurrent () {  
+  u8g2.setCursor(64,8);
+  u8g2.print("A: ");
+  u8g2.print(I);
+}
+
+void showWattage () {  
+  u8g2.setCursor(0,16);
+  u8g2.print("Wh: ");
+  u8g2.print(Wh);
+}
+
+void showCapacity () {  
+  u8g2.setCursor(64,16);
+  u8g2.print("mAh: ");
+  u8g2.print(capacity);
+}
+
+void showDebug () {
+  u8g2.setCursor(120,8);
+  u8g2.print(test);
+}
+
+void beepStop () {
+  digitalWrite(buzzerOutPin, 0);
+  digitalWrite(ledOutPin, 0);
+  delay(100);
+  digitalWrite(buzzerOutPin, 1);
+  digitalWrite(ledOutPin, 1);
+  delay(100);
+  digitalWrite(buzzerOutPin, 0);
+  digitalWrite(ledOutPin, 0);
+  delay(100);
+  digitalWrite(buzzerOutPin, 1);
+  digitalWrite(ledOutPin, 1);
+  delay(100);
+  digitalWrite(buzzerOutPin, 0);
+  digitalWrite(ledOutPin, 0);
+  delay(100);
+  digitalWrite(buzzerOutPin, 1);
+  digitalWrite(ledOutPin, 1);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
 
-  voltageADC = readVoltage();
+  u8g2.clearBuffer();
+
+  V = readVoltage();
   buttonState = readButtonDebounce();
 
-  u8g2.clearBuffer();
-  
   switch (test) {
     case 0:
       // Press button to start
-      u8g2.setCursor(0,9);
+      u8g2.setCursor(0,24);
       u8g2.print("Press button");
-      u8g2.setCursor(0,18);
+      u8g2.setCursor(0,32);
       u8g2.print("to start test!");
       showTimeSinceStart();
-      showVoltage(voltageADC);
+      showVoltage();
       if (buttonState == LOW) {
         // button is pressed
-        test = 1;
+        test = 1;        
       }
       break;
     case 1:
@@ -159,31 +212,76 @@ void loop() {
       digitalWrite(mosfetOutPin, HIGH);
       test = 2;
       prevMillis = millis();
-      if (voltageADC <= minVoltage) {
+      if (V < minVoltage) {
         test = 3;
+        digitalWrite(mosfetOutPin, LOW);
+        beepStop();
       }
       break;
     case 2:
       // Testing
-
+      I = V / R;
+      Wh += V * I * (millis() - prevMillis) / 3600000;
+      capacity += I * (millis() - prevMillis) / 3600000000;
+      u8g2.setCursor(0,24);
+      u8g2.print("Testing battery...");
+      showVoltage();
+      showCurrent();
+      showWattage();
+      showCapacity();
+      if (V < minVoltage) {
+        test = 3;
+        digitalWrite(mosfetOutPin, LOW);
+        beepStop();
+      }
+      if (buttonState == LOW) {
+        // button is pressed
+        test = 4;
+      }
       break;
     case 3:
       // Stop testing - battery deplited
-
+      u8g2.setCursor(0,24);
+      u8g2.print("Battery deplited! Charge battery");
+      u8g2.setCursor(0,32);
+      u8g2.print("and press button");
+      showVoltage();
+      showWattage();
+      showCapacity();
+      if (buttonState == LOW) {
+        // button is pressed
+        test = 0;
+        I = 0;
+        Wh = 0;
+        capacity = 0;
+      }
       break;
     case 4:
       // Stop testing - button pressed
-
-      break;
-    case 5:
-      // 
-
-      break;
+      u8g2.setCursor(0,24);
+      u8g2.print("Test stopped by user");
+      u8g2.setCursor(0,32);
+      u8g2.print("Press button");      
+      showVoltage();
+      showWattage();
+      showCapacity();
+      if (buttonState == LOW) {
+        // button is pressed
+        test = 0;
+        I = 0;
+        Wh = 0;
+        capacity = 0;
+      }
+      break;    
     default:
       // statements
       break;
   }
-
+  
+  showTimeSinceStart();
+  if (debug == HIGH) {
+    showDebug();
+  }
   u8g2.sendBuffer();  
    
 }
